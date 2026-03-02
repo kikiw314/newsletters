@@ -1498,7 +1498,6 @@ function updateNavButtons() {
 
 // ── Settings ──────────────────────────────────────────────────────────────
 function openSettings() {
-  document.getElementById('settings-client-id').value = clientId;
   renderDaysPills();
   renderSendersList();
   openModal('settings');
@@ -1731,6 +1730,17 @@ function init() {
 }
 
 init();
+
+// Re-sync from Drive when tab regains focus (keeps browsers in sync)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && accessToken) {
+    loadFromDrive().then(() => {
+      renderDaysPills();
+      renderSendersList();
+      renderFeed();
+    }).catch(() => {});
+  }
+});
 </script>
 </body>
 </html>
