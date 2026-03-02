@@ -994,7 +994,11 @@ header {
 <script>
 // ── Constants ────────────────────────────────────────────────────────────
 const GMAIL_API      = 'https://gmail.googleapis.com/gmail/v1/users/me';
-const SCOPE          = 'https://www.googleapis.com/auth/gmail.readonly';
+const DRIVE_API      = 'https://www.googleapis.com/drive/v3';
+const DRIVE_UPLOAD   = 'https://www.googleapis.com/upload/drive/v3';
+const DRIVE_FILE     = 'newsletters-settings.json';
+const SCOPE          = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.appdata';
+const SCOPE_VERSION  = 2; // bump when scope changes to force re-consent
 const LS_CLIENT_ID   = 'gmail_client_id';
 const LS_SENDERS     = 'gmail_newsletter_senders';
 const LS_DAYS        = 'gmail_lookback_days';
@@ -1022,6 +1026,8 @@ let silentAuthAttempt = false;
 let userEmail        = '';
 let readIds          = new Set();
 let displayOrder     = [];
+let driveFileId      = null;
+let saveTimer        = null;
 
 // ── Utilities ────────────────────────────────────────────────────────────
 function escHtml(str) {
@@ -1094,13 +1100,13 @@ function loadSettings() {
     senders = JSON.parse(localStorage.getItem(LS_SENDERS) || 'null') || DEFAULT_SENDERS.slice();
   } catch { senders = DEFAULT_SENDERS.slice(); }
 }
-function saveSenders() { localStorage.setItem(LS_SENDERS, JSON.stringify(senders)); }
-function saveDays()    { localStorage.setItem(LS_DAYS, String(lookbackDays)); }
+function saveSenders() { localStorage.setItem(LS_SENDERS, JSON.stringify(senders)); debouncedSaveToDrive(); }
+function saveDays()    { localStorage.setItem(LS_DAYS, String(lookbackDays)); debouncedSaveToDrive(); }
 function loadReadIds() {
   try { readIds = new Set(JSON.parse(localStorage.getItem(LS_READ) || '[]')); }
   catch { readIds = new Set(); }
 }
-function saveReadIds() { localStorage.setItem(LS_READ, JSON.stringify([...readIds])); }
+function saveReadIds() { localStorage.setItem(LS_READ, JSON.stringify([...readIds])); debouncedSaveToDrive(); }
 function toggleRead(id) {
   readIds.has(id) ? readIds.delete(id) : readIds.add(id);
   saveReadIds();
@@ -1186,6 +1192,65 @@ function parseMessage(raw) {
   return { id: raw.id, senderName, subject, dateMs, previewText: rawPreview.slice(0, 200), htmlBody, textBody };
 }
 
+// ── Google Drive (app data) ───────────────────────────────────────────────
+async function driveGet(path) {
+  const res = await fetch(`${DRIVE_API}${path}`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (res.status === 401) { handleTokenExpiry(); throw new Error('token_expired'); }
+  return res;
+}
+
+async function loadFromDrive() {
+  try {
+    const res  = await driveGet(`/files?spaces=appDataFolder&q=name%3D'${DRIVE_FILE}'&fields=files(id)`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.files || !data.files.length) return;
+    driveFileId = data.files[0].id;
+    const fileRes = await driveGet(`/files/${driveFileId}?alt=media`);
+    if (!fileRes.ok) return;
+    const saved = await fileRes.json();
+    if (Array.isArray(saved.senders))     { senders = saved.senders; localStorage.setItem(LS_SENDERS, JSON.stringify(senders)); }
+    if (Array.isArray(saved.readIds))     { readIds = new Set(saved.readIds); localStorage.setItem(LS_READ, JSON.stringify(saved.readIds)); }
+    if (typeof saved.lookbackDays === 'number') { lookbackDays = saved.lookbackDays; localStorage.setItem(LS_DAYS, String(lookbackDays)); }
+  } catch (err) {
+    if (err.message === 'token_expired') throw err;
+    console.warn('Drive load failed, using local data:', err.message);
+  }
+}
+
+async function saveToDrive() {
+  if (!accessToken) return;
+  const payload = JSON.stringify({ senders, readIds: [...readIds], lookbackDays });
+  const boundary = 'nl_boundary';
+  try {
+    if (driveFileId) {
+      await fetch(`${DRIVE_UPLOAD}/files/${driveFileId}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: payload
+      });
+    } else {
+      const meta = JSON.stringify({ name: DRIVE_FILE, parents: ['appDataFolder'] });
+      const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${payload}\r\n--${boundary}--`;
+      const res  = await fetch(`${DRIVE_UPLOAD}/files?uploadType=multipart`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body
+      });
+      if (res.ok) { const d = await res.json(); driveFileId = d.id; }
+    }
+  } catch (err) {
+    console.warn('Drive save failed:', err.message);
+  }
+}
+
+function debouncedSaveToDrive() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveToDrive, 1000);
+}
+
 async function fetchAllEmails() {
   showLoading();
   try {
@@ -1231,7 +1296,7 @@ function onTokenReceived(response) {
   persistToken(accessToken, response.expires_in || 3600);
   fetchUserInfo();
   updateAuthUI(true);
-  fetchAllEmails();
+  loadFromDrive().then(() => fetchAllEmails()).catch(() => fetchAllEmails());
 }
 
 async function fetchUserInfo() {
@@ -1282,6 +1347,7 @@ function signOut() {
   accessToken = null;
   userEmail   = '';
   emails      = [];
+  driveFileId = null;
   clearPersistedToken();
   updateAuthUI(false);
   hideAllStates();
@@ -1658,6 +1724,12 @@ document.addEventListener('click', () => {
 
 // ── Init ─────────────────────────────────────────────────────────────────
 function init() {
+  // Force re-consent if scope version changed
+  if (parseInt(localStorage.getItem('gmail_scope_v') || '1') < SCOPE_VERSION) {
+    clearPersistedToken();
+    localStorage.setItem('gmail_scope_v', String(SCOPE_VERSION));
+  }
+
   loadSettings();
   loadReadIds();
   showAppScreen();
@@ -1668,7 +1740,7 @@ function init() {
     accessToken = stored;
     updateAuthUI(true);
     fetchUserInfo();
-    fetchAllEmails();
+    loadFromDrive().then(() => fetchAllEmails()).catch(() => fetchAllEmails());
   } else {
     updateAuthUI(false);
   }
