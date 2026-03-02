@@ -998,10 +998,11 @@ const SCOPE          = 'https://www.googleapis.com/auth/gmail.readonly';
 const LS_CLIENT_ID   = 'gmail_client_id';
 const LS_SENDERS     = 'gmail_newsletter_senders';
 const LS_DAYS        = 'gmail_lookback_days';
-const LS_TOKEN       = 'gmail_access_token';
-const LS_TOKEN_EXP   = 'gmail_token_expiry';
-const LS_SIGNED_IN   = 'gmail_signed_in';
-const LS_READ        = 'gmail_read_ids';
+const LS_TOKEN        = 'gmail_access_token';
+const LS_TOKEN_EXP    = 'gmail_token_expiry';
+const LS_SIGNED_IN    = 'gmail_signed_in';
+const LS_READ         = 'gmail_read_ids';
+const DEFAULT_CLIENT_ID = '708733339406-5clkirf9o0g9nk4lolmrdnrml6rledrf.apps.googleusercontent.com';
 
 const DEFAULT_SENDERS = [
   'morningbrew.com', 'thebrowser.com', 'densediscovery.com',
@@ -1087,7 +1088,7 @@ function todayDisplay() {
 
 // ── Settings persistence ──────────────────────────────────────────────────
 function loadSettings() {
-  clientId     = localStorage.getItem(LS_CLIENT_ID) || '';
+  clientId     = localStorage.getItem(LS_CLIENT_ID) || DEFAULT_CLIENT_ID;
   lookbackDays = parseInt(localStorage.getItem(LS_DAYS) || '2', 10);
   try {
     senders = JSON.parse(localStorage.getItem(LS_SENDERS) || 'null') || DEFAULT_SENDERS.slice();
@@ -1659,7 +1660,6 @@ document.addEventListener('click', () => {
 function init() {
   loadSettings();
   loadReadIds();
-  if (!clientId) { showSetupScreen(); return; }
   showAppScreen();
 
   // Check for a valid stored token first
