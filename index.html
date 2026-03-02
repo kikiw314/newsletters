@@ -746,21 +746,6 @@ header {
   gap: 8px;
 }
 .settings-input-row .text-input { font-size: 0.8rem; }
-.btn-autofill {
-  padding: 9px 12px;
-  border-radius: 10px;
-  border: 1.5px solid var(--border-blush);
-  background: none;
-  color: var(--text-muted);
-  font-family: 'DM Sans', sans-serif;
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.btn-autofill:hover { border-color: var(--accent); color: var(--accent); background: var(--ring-bg); }
 .btn-save {
   padding: 9px 14px;
   border-radius: 10px;
@@ -961,22 +946,6 @@ header {
         <button class="day-pill" data-days="3">3 days</button>
         <button class="day-pill" data-days="5">5 days</button>
         <button class="day-pill" data-days="7">7 days</button>
-      </div>
-    </div>
-
-    <div class="settings-section">
-      <span class="settings-label">oauth client id</span>
-      <div class="settings-input-row">
-        <input
-          id="settings-client-id"
-          class="text-input"
-          type="text"
-          placeholder="paste client id"
-          autocomplete="off"
-          spellcheck="false"
-        >
-        <button class="btn-autofill" id="btn-autofill-client-id" title="restore default client id">autofill</button>
-        <button class="btn-save" id="btn-save-client-id">save</button>
       </div>
     </div>
 
@@ -1666,21 +1635,6 @@ document.getElementById('btn-settings').addEventListener('click', openSettings);
 document.getElementById('btn-close-settings').addEventListener('click', () => closeAllModals());
 document.getElementById('backdrop').addEventListener('click', () => closeAllModals());
 
-document.getElementById('btn-autofill-client-id').addEventListener('click', () => {
-  document.getElementById('settings-client-id').value = DEFAULT_CLIENT_ID;
-});
-
-document.getElementById('btn-save-client-id').addEventListener('click', () => {
-  const val = document.getElementById('settings-client-id').value.trim();
-  if (!val) return;
-  clientId = val;
-  tokenClient = null;
-  accessToken = null;
-  clearPersistedToken();
-  updateAuthUI(false);
-  initGIS();
-  closeAllModals();
-});
 
 document.getElementById('days-pills').addEventListener('click', e => {
   const pill = e.target.closest('.day-pill');
