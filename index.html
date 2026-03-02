@@ -1110,7 +1110,7 @@ function todayDisplay() {
 
 // ── Settings persistence ──────────────────────────────────────────────────
 function loadSettings() {
-  clientId     = localStorage.getItem(LS_CLIENT_ID) || DEFAULT_CLIENT_ID;
+  clientId     = DEFAULT_CLIENT_ID;
   lookbackDays = parseInt(localStorage.getItem(LS_DAYS) || '2', 10);
   try {
     senders = JSON.parse(localStorage.getItem(LS_SENDERS) || 'null') || DEFAULT_SENDERS.slice();
@@ -1674,7 +1674,6 @@ document.getElementById('btn-save-client-id').addEventListener('click', () => {
   const val = document.getElementById('settings-client-id').value.trim();
   if (!val) return;
   clientId = val;
-  localStorage.setItem(LS_CLIENT_ID, clientId);
   tokenClient = null;
   accessToken = null;
   clearPersistedToken();
