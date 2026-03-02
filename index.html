@@ -384,6 +384,8 @@ header {
 }
 
 /* ── Newsletter card ─────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn-icon.spinning { animation: spin 0.7s linear infinite; }
 @keyframes slideIn {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -667,6 +669,7 @@ header {
   cursor: default;
 }
 
+
 /* ── Settings modal — centered ───────────────────────── */
 #modal-settings {
   position: fixed;
@@ -824,6 +827,62 @@ header {
   transition: color 0.15s;
 }
 .settings-signout:hover { color: var(--accent); }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.toggle-row span {
+  font-size: 0.82rem;
+  color: var(--text-plum);
+}
+.toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  top: 3px;
+  left: 3px;
+  transition: transform 0.2s;
+}
+.toggle-switch input:checked + .toggle-track { background: var(--accent); }
+.toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); }
+
+.theme-swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.theme-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+  outline: none;
+  flex-shrink: 0;
+}
+.theme-swatch:hover { transform: scale(1.15); }
+.theme-swatch.active { border-color: var(--text-plum); }
 </style>
 </head>
 <body>
@@ -930,6 +989,7 @@ header {
   </div>
 </div>
 
+
 <!-- ── Settings modal — centered ─────────────────────────────────── -->
 <div id="modal-settings">
   <div class="settings-header">
@@ -966,6 +1026,29 @@ header {
     </div>
 
     <div class="settings-section">
+      <span class="settings-label">color</span>
+      <div class="theme-swatches" id="theme-swatches">
+        <button class="theme-swatch" data-theme="rose"     style="background:#d4849a" title="Rose"></button>
+        <button class="theme-swatch" data-theme="lavender" style="background:#9b84c8" title="Lavender"></button>
+        <button class="theme-swatch" data-theme="sage"     style="background:#7aaa88" title="Sage"></button>
+        <button class="theme-swatch" data-theme="peach"    style="background:#e09870" title="Peach"></button>
+        <button class="theme-swatch" data-theme="sky"      style="background:#72a8d4" title="Sky"></button>
+        <button class="theme-swatch" data-theme="slate"    style="background:#6b7280" title="Slate"></button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <span class="settings-label">view</span>
+      <div class="toggle-row">
+        <span>hide read</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="toggle-hide-read">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <span class="settings-label">account</span>
       <button class="settings-signout" id="btn-signout-settings">sign out</button>
     </div>
@@ -982,8 +1065,8 @@ const GMAIL_API      = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const DRIVE_API      = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD   = 'https://www.googleapis.com/upload/drive/v3';
 const DRIVE_FILE     = 'newsletters-settings.json';
-const SCOPE          = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.appdata';
-const SCOPE_VERSION  = 2; // bump when scope changes to force re-consent
+const SCOPE          = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.appdata profile email';
+const SCOPE_VERSION  = 3; // bump when scope changes to force re-consent
 const LS_CLIENT_ID   = 'gmail_client_id';
 const LS_SENDERS     = 'gmail_newsletter_senders';
 const LS_DAYS        = 'gmail_lookback_days';
@@ -991,6 +1074,8 @@ const LS_TOKEN        = 'gmail_access_token';
 const LS_TOKEN_EXP    = 'gmail_token_expiry';
 const LS_SIGNED_IN    = 'gmail_signed_in';
 const LS_READ         = 'gmail_read_ids';
+const LS_HIDE_READ    = 'gmail_hide_read';
+const LS_THEME        = 'gmail_theme';
 const DEFAULT_CLIENT_ID = '708733339406-5clkirf9o0g9nk4lolmrdnrml6rledrf.apps.googleusercontent.com';
 
 const DEFAULT_SENDERS = [
@@ -1010,9 +1095,33 @@ let gisLoaded        = false;
 let silentAuthAttempt = false;
 let userEmail        = '';
 let readIds          = new Set();
+let hideRead         = false;
 let displayOrder     = [];
 let driveFileId      = null;
 let saveTimer        = null;
+
+// ── Themes ───────────────────────────────────────────────────────────────
+const THEMES = {
+  rose:     { accent: '#d4849a', dark: '#bf6f88', pale: '#f5d5e0', border: '#edccd6', muted: '#c084a0' },
+  lavender: { accent: '#9b84c8', dark: '#8468b8', pale: '#e8e0f8', border: '#ddd5f4', muted: '#9b84c8' },
+  sage:     { accent: '#7aaa88', dark: '#5e8f6e', pale: '#d4eddb', border: '#c4e0cb', muted: '#7aaa88' },
+  peach:    { accent: '#e09870', dark: '#c87d56', pale: '#fae4d4', border: '#f5d5bf', muted: '#e09870' },
+  sky:      { accent: '#72a8d4', dark: '#5090be', pale: '#d0e8f8', border: '#c0dcf4', muted: '#72a8d4' },
+  slate:    { accent: '#6b7280', dark: '#4b5563', pale: '#e5e7eb', border: '#d4d7dc', muted: '#6b7280' },
+};
+
+function applyTheme(name) {
+  const t = THEMES[name] || THEMES.rose;
+  const r = document.documentElement.style;
+  r.setProperty('--accent',       t.accent);
+  r.setProperty('--accent-hover', t.dark);
+  r.setProperty('--ring-bg',      t.pale);
+  r.setProperty('--border-blush', t.border);
+  r.setProperty('--text-muted',   t.muted);
+  document.querySelectorAll('.theme-swatch').forEach(s =>
+    s.classList.toggle('active', s.dataset.theme === name)
+  );
+}
 
 // ── Utilities ────────────────────────────────────────────────────────────
 function escHtml(str) {
@@ -1081,6 +1190,8 @@ function todayDisplay() {
 function loadSettings() {
   clientId     = DEFAULT_CLIENT_ID;
   lookbackDays = parseInt(localStorage.getItem(LS_DAYS) || '2', 10);
+  hideRead     = localStorage.getItem(LS_HIDE_READ) === '1';
+  applyTheme(localStorage.getItem(LS_THEME) || 'rose');
   try {
     senders = JSON.parse(localStorage.getItem(LS_SENDERS) || 'null') || DEFAULT_SENDERS.slice();
   } catch { senders = DEFAULT_SENDERS.slice(); }
@@ -1097,12 +1208,8 @@ function toggleRead(id) {
   saveReadIds();
 }
 function getDisplayOrder() {
-  return [...emails].sort((a, b) => {
-    const aRead = readIds.has(a.id);
-    const bRead = readIds.has(b.id);
-    if (aRead !== bRead) return aRead ? 1 : -1; // unread first
-    return b.dateMs - a.dateMs;
-  });
+  const visible = hideRead ? emails.filter(e => !readIds.has(e.id)) : emails;
+  return [...visible].sort((a, b) => b.dateMs - a.dateMs);
 }
 
 // ── Token persistence ─────────────────────────────────────────────────────
@@ -1197,7 +1304,7 @@ async function loadFromDrive() {
     if (!fileRes.ok) return;
     const saved = await fileRes.json();
     if (Array.isArray(saved.senders))     { senders = saved.senders; localStorage.setItem(LS_SENDERS, JSON.stringify(senders)); }
-    if (Array.isArray(saved.readIds))     { readIds = new Set(saved.readIds); localStorage.setItem(LS_READ, JSON.stringify(saved.readIds)); }
+    if (Array.isArray(saved.readIds))     { saved.readIds.forEach(id => readIds.add(id)); localStorage.setItem(LS_READ, JSON.stringify([...readIds])); }
     if (typeof saved.lookbackDays === 'number') { lookbackDays = saved.lookbackDays; localStorage.setItem(LS_DAYS, String(lookbackDays)); }
   } catch (err) {
     if (err.message === 'token_expired') throw err;
@@ -1237,6 +1344,7 @@ function debouncedSaveToDrive() {
 }
 
 async function fetchAllEmails() {
+  document.getElementById('btn-refresh').classList.add('spinning');
   showLoading();
   try {
     const ids = await listMessageIds(buildGmailQuery(senders, lookbackDays));
@@ -1256,6 +1364,8 @@ async function fetchAllEmails() {
     if (err.message === 'token_expired') return;
     hideLoading();
     showError(err.message || 'failed to fetch emails');
+  } finally {
+    document.getElementById('btn-refresh').classList.remove('spinning');
   }
 }
 
@@ -1297,7 +1407,7 @@ async function fetchUserInfo() {
     document.getElementById('signout-email').textContent = userEmail;
     const avatar = document.getElementById('user-avatar');
     if (info.picture) {
-      avatar.innerHTML = `<img src="${escHtml(info.picture)}" alt="">`;
+      avatar.innerHTML = `<img src="${escHtml(info.picture)}" alt="" referrerpolicy="no-referrer">`;
     } else {
       avatar.textContent = (name[0] || '?').toUpperCase();
     }
@@ -1501,6 +1611,11 @@ function updateNavButtons() {
 function openSettings() {
   renderDaysPills();
   renderSendersList();
+  document.getElementById('toggle-hide-read').checked = hideRead;
+  const saved = localStorage.getItem(LS_THEME) || 'rose';
+  document.querySelectorAll('.theme-swatch').forEach(s =>
+    s.classList.toggle('active', s.dataset.theme === saved)
+  );
   openModal('settings');
 }
 
@@ -1547,9 +1662,7 @@ function addSender() {
 // ── Modal management ──────────────────────────────────────────────────────
 function openModal(name) {
   closeAllModals(false);
-  if (name === 'settings') {
-    document.getElementById('backdrop').classList.add('open');
-  }
+  document.getElementById('backdrop').classList.add('open');
   requestAnimationFrame(() => requestAnimationFrame(() => {
     document.getElementById(`modal-${name}`).classList.add('open');
   }));
@@ -1650,6 +1763,20 @@ document.getElementById('sender-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') addSender();
 });
 
+document.getElementById('theme-swatches').addEventListener('click', e => {
+  const swatch = e.target.closest('.theme-swatch');
+  if (!swatch) return;
+  const name = swatch.dataset.theme;
+  localStorage.setItem(LS_THEME, name);
+  applyTheme(name);
+});
+
+document.getElementById('toggle-hide-read').addEventListener('change', e => {
+  hideRead = e.target.checked;
+  localStorage.setItem(LS_HIDE_READ, hideRead ? '1' : '0');
+  renderFeed(false);
+});
+
 // Settings sign-out
 document.getElementById('btn-signout-settings').addEventListener('click', () => {
   closeAllModals();
@@ -1660,10 +1787,21 @@ document.getElementById('btn-signout-settings').addEventListener('click', () => 
 document.getElementById('btn-close-email').addEventListener('click', () => closeAllModals());
 document.getElementById('btn-mark-read').addEventListener('click', () => {
   if (!currentEmailId) return;
+  const wasUnread = !readIds.has(currentEmailId);
   toggleRead(currentEmailId);
-  updateViewerReadBtn();
-  updateNavButtons();
   renderFeed(false);
+  if (wasUnread) {
+    const order = getDisplayOrder();
+    const idx = order.findIndex(e => e.id === currentEmailId);
+    if (idx !== -1 && idx < order.length - 1) {
+      openEmailViewer(order[idx + 1]);
+    } else {
+      closeAllModals();
+    }
+  } else {
+    updateViewerReadBtn();
+    updateNavButtons();
+  }
 });
 document.getElementById('btn-prev-article').addEventListener('click', () => {
   const idx = getCurrentDisplayIndex();
