@@ -1371,7 +1371,7 @@ function showEmpty() {
   document.getElementById('empty-state').classList.remove('hidden');
 }
 
-function renderFeed() {
+function renderFeed(animate = true) {
   if (!emails.length) { showEmpty(); return; }
   hideAllStates();
   displayOrder = getDisplayOrder();
@@ -1391,15 +1391,16 @@ function renderFeed() {
     feed.appendChild(dayDiv);
     const grid = document.createElement('div');
     grid.className = 'feed-grid';
-    dayEmails.forEach(email => grid.appendChild(renderCard(email)));
+    dayEmails.forEach(email => grid.appendChild(renderCard(email, animate)));
     feed.appendChild(grid);
   });
 }
 
-function renderCard(email) {
+function renderCard(email, animate = true) {
   const isRead = readIds.has(email.id);
   const card = document.createElement('div');
   card.className = 'newsletter-card' + (isRead ? ' is-read' : '');
+  if (!animate) card.style.animation = 'none';
   card.dataset.id = email.id;
   card.innerHTML = `
     <div class="card-top">
@@ -1416,7 +1417,7 @@ function renderCard(email) {
   readBtn.addEventListener('click', e => {
     e.stopPropagation();
     toggleRead(email.id);
-    renderFeed();
+    renderFeed(false);
   });
   card.addEventListener('click', () => openEmailViewer(email));
   return card;
@@ -1662,7 +1663,7 @@ document.getElementById('btn-mark-read').addEventListener('click', () => {
   toggleRead(currentEmailId);
   updateViewerReadBtn();
   updateNavButtons();
-  renderFeed();
+  renderFeed(false);
 });
 document.getElementById('btn-prev-article').addEventListener('click', () => {
   const idx = getCurrentDisplayIndex();
@@ -1737,7 +1738,7 @@ document.addEventListener('visibilitychange', () => {
     loadFromDrive().then(() => {
       renderDaysPills();
       renderSendersList();
-      renderFeed();
+      renderFeed(false);
     }).catch(() => {});
   }
 });
